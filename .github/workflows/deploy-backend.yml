@@ -1,45 +1,56 @@
 name: Deploy Backend
 
 on:
-  workflow_dispatch:
+  workflow_dispatch:      # Allows manual trigger button
   push:
     branches: [ "main" ]
     paths:
-      - 'Backend/**' # <--- This ensures it only runs when Backend files change
+      - 'Backend/**'      # Only run if Backend files change
 
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      
+
+      # --- DEBUG STEP: This prevents "File Not Found" errors ---
+      - name: Debug File Structure
+        run: |
+          echo "Listing root files:"
+          ls -la
+          echo "Listing Backend folder (if it exists):"
+          ls -la Backend || echo "Backend folder NOT found (Check case sensitivity!)"
+
       - name: Login to Docker Hub
         uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
-          
+
       - name: Build and Push Backend Image
         run: |
-          # --- REPLACE: Check if your folder is named 'Backend' or 'server' ---
-          # We assume 'Backend' based on your screenshot.
+          # We use ./Backend because your Dockerfile is inside that folder
+          # WARNING: Ensure your folder is named 'Backend' (Capital B), not 'backend'
           docker build -t ${{ secrets.DOCKER_USERNAME }}/dentoji-server:latest ./Backend
           docker push ${{ secrets.DOCKER_USERNAME }}/dentoji-server:latest
 
   deploy:
     needs: build
-    runs-on: self-hosted # <--- This must match the runner installed on your EC2
+    runs-on: self-hosted  # Must match your EC2 runner
     steps:
       - name: Deploy to EC2
         run: |
-          # Stop the old container
+          # 1. Stop old container (|| true prevents error if it doesn't exist)
           docker rm -f dentoji-server || true
-          
-          # Pull the new image
+
+          # 2. Clean up old images to save space on EC2
+          docker system prune -f || true
+
+          # 3. Pull the new image
           docker pull ${{ secrets.DOCKER_USERNAME }}/dentoji-server:latest
-          
-          # Run the new container
-          # --- REPLACE: Ensure 5001:5001 matches your Dockerfile port ---
+
+          # 4. Run new container
+          # Ensure port 5001 matches your index.js listen port
           docker run -d -p 5001:5001 --name dentoji-server \
             -e MONGO_URI='${{ secrets.MONGO_URI }}' \
             ${{ secrets.DOCKER_USERNAME }}/dentoji-server:latest
