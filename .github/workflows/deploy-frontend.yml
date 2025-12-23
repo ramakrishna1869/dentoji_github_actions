@@ -1,0 +1,44 @@
+name: Deploy Frontend
+
+on:
+  push:
+    branches: [ "main" ]
+    paths:
+      - 'Frontend/**' # <--- Only runs when Frontend files change
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+          
+      - name: Build and Push Frontend Image
+        run: |
+          # --- REPLACE: Ensure folder name is 'Frontend' ---
+          # We pass the VITE_API_URL variable here during the build
+          docker build \
+            --build-arg VITE_API_URL=${{ vars.VITE_API_URL }} \
+            -t ${{ secrets.DOCKER_USERNAME }}/dentoji-client:latest ./Frontend
+            
+          docker push ${{ secrets.DOCKER_USERNAME }}/dentoji-client:latest
+
+  deploy:
+    needs: build
+    runs-on: self-hosted # <--- Runs on your EC2
+    steps:
+      - name: Deploy to EC2
+        run: |
+          docker rm -f dentoji-client || true
+          docker pull ${{ secrets.DOCKER_USERNAME }}/dentoji-client:latest
+          
+          # --- REPLACE: Port 80 is standard for web. Change if needed. ---
+          docker run -d -p 80:80 --name dentoji-client ${{ secrets.DOCKER_USERNAME }}/dentoji-client:latest
+          
+          # Cleanup to save space on AWS
+          docker image prune -f
